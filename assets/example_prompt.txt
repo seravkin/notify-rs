@@ -1,0 +1,23 @@
+/* Examples of how notifications should be parsed into two possible types:
+Type 1: absolute date and time of format {"kind": "abs", "text": "string", "times": ["22.07.2022 03:37:01"]}
+Type 2: relative to current date and time of format {"kind": "rel", "text": "string", "week": 0, "days": [5], "time": "12:00"}
+*/
+const current_time = "21.07.2022 22:37:01, Thursday";
+const query = 'Remind me about "собеседование" in five hours';
+const answer = {"kind": "abs", "text": "собеседование", "times": ["22.07.2022 03:37:01"]};
+***
+const current_time = "21.07.2022 22:37:01, Thursday";
+const query = 'Remind me about "собеседование" next friday at 12:00';
+const answer = {"kind": "rel", "text": "собеседование", "week": 1, "days": [5], "times": ["12:00"]};
+***
+const current_time = "24.01.2023 14:00:00, Tuesday";
+const query = 'Напомни мне позвонить Алексу в субботу днём';
+const answer = {"kind": "rel", "text": "позвонить Алексу", "week": 0, "days": [6], "times": ["12:00"]};
+***
+const current_time = "25.02.2023 18:00:00, Tuesday";
+const query = 'Через два и три часа напомни мне проверить плиту';
+const answer = {"kind": "abs", "text": "проверить плиту", "times": ["25.02.2023 20:00:00", "25.02.2023 21:00:00"]};
+***
+const current_time = "26.01.2023 14:40:00, Thursday";
+const query = 'Завтра в 12 и 15 часов напомни проверить почту';
+const answer = {"kind": "
