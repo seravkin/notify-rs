@@ -23,14 +23,38 @@ struct OpenAIRequest {
 }
 
 #[derive(Debug, Deserialize)]
-pub struct ModelChoice {
-    pub text: String,
-    pub index: u16,
+struct ModelChoice {
+    text: String,
+    index: u16,
 }
 
 #[derive(Debug, Deserialize)]
-pub struct ModelResponse {
-    pub choices: Vec<ModelChoice>,
+struct ModelResponse {
+    choices: Vec<ModelChoice>,
+}
+
+#[derive(Debug, Serialize)]
+struct OpenAIChatRequest {
+    model: String,
+    messages: Vec<Message>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct Message {
+    role: String,
+    content: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct OpenAIChatResponse {
+    choices: Vec<Choice>,
+}
+
+#[derive(Debug, Deserialize)]
+struct Choice {
+    message: Message,
+    finish_reason: String,
+    index: u16,
 }
 
 impl OpenAIParser {
@@ -39,50 +63,62 @@ impl OpenAIParser {
         OpenAIParser { api_key, client }
     }
 
-    fn create_prompt(current_date: DateTime<Utc>, text: &str) -> String {
+    const SYSTEM_PROMPT: &'static str = "You are an assistant tasked with converting user queries into json formatted notifications. You shouldn't comment on the query, just output the json. 
+
+Examples of how notifications should be parsed into two possible types:
+Type 1: absolute date and time of format {\"kind\": \"absolute\", \"text\": \"string\", \"times\": [\"22.07.2022 03:37:01\"]}
+Type 2: relative to current date and time of format {\"kind\": \"relative\", \"text\": \"string\", \"week\": 0, \"days\": [5], \"time\": \"12:00\"}
+
+Examples of queries:
+
+Current time is \"21.07.2022 22:37:01, Thursday\"
+Remind me about \"собеседование\" in five hours
+
+Answer: {\"kind\": \"absolute\", \"text\": \"собеседование\", \"times\": [\"22.07.2022 03:37:01\"]}
+
+Current time is \"21.07.2022 22:37:01, Thursday\"
+Remind me about \"собеседование\" next friday at 12:00
+
+Answer: {\"kind\": \"relative\", \"text\": \"собеседование\", \"week\": 1, \"days\": [5], \"times\": [\"12:00\"]}
+
+Current time is \"24.01.2023 14:00:00, Tuesday\"
+Напомни мне позвонить Алексу в субботу днём;
+
+Answer: {\"kind\": \"relative\", \"text\": \"позвонить Алексу\", \"week\": 0, \"days\": [6], \"times\": [\"12:00\"]}
+
+Current time is \"25.02.2023 18:00:00, Tuesday\"
+'Через два и три часа напомни мне проверить плиту'
+
+Answer: {\"kind\": \"absolute\", \"text\": \"проверить плиту\", \"times\": [\"25.02.2023 20:00:00\", \"25.02.2023 21:00:00\"]}";
+
+    fn create_prompt(current_date: DateTime<Utc>, text: &str) -> (String, String) {
         let current_date_as_naive = current_date.naive_utc();
         let current_date = chrono_tz::Israel.from_utc_datetime(&current_date_as_naive);
         // format should be like 21.07.2022 22:37:01, thursday
         let formatted_date = current_date.format("%d.%m.%Y %H:%M:%S, %A");
-        format!("/* Examples of how notifications should be parsed into two possible types:
-Type 1: absolute date and time of format {{\"kind\": \"abs\", \"text\": \"string\", \"times\": [\"22.07.2022 03:37:01\"]}}
-Type 2: relative to current date and time of format {{\"kind\": \"rel\", \"text\": \"string\", \"week\": 0, \"days\": [5], \"time\": \"12:00\"}}
-*/
-const current_time = \"21.07.2022 22:37:01, Thursday\";
-const query = 'Remind me about \"собеседование\" in five hours';
-const answer = {{\"kind\": \"abs\", \"text\": \"собеседование\", \"times\": [\"22.07.2022 03:37:01\"]}};
-***
-const current_time = \"21.07.2022 22:37:01, Thursday\";
-const query = 'Remind me about \"собеседование\" next friday at 12:00';
-const answer = {{\"kind\": \"rel\", \"text\": \"собеседование\", \"week\": 1, \"days\": [5], \"times\": [\"12:00\"]}};
-***
-const current_time = \"24.01.2023 14:00:00, Tuesday\";
-const query = 'Напомни мне позвонить Алексу в субботу днём';
-const answer = {{\"kind\": \"rel\", \"text\": \"позвонить Алексу\", \"week\": 0, \"days\": [6], \"times\": [\"12:00\"]}};
-***
-const current_time = \"25.02.2023 18:00:00, Tuesday\";
-const query = 'Через два и три часа напомни мне проверить плиту';
-const answer = {{\"kind\": \"abs\", \"text\": \"проверить плиту\", \"times\": [\"25.02.2023 20:00:00\", \"25.02.2023 21:00:00\"]}};
-***
-const current_time = \"{formatted_date}\";
-const query = '{text}';
-const answer = {{\"kind\": \"")
+
+        (Self::SYSTEM_PROMPT.to_owned(), format!("Current time is \"{}\"\n{}\n", formatted_date, text))
     }
 
     pub async fn parse(&self, current_date: DateTime<Utc>, text: &str) -> Result<Notification, BotError> {
-        let request = OpenAIRequest {
-            model: "code-davinci-002".to_string(),
-            prompt: Self::create_prompt(current_date, text),
-            temperature: 0.0,
-            max_tokens: 256,
-            top_p: 1.0,
-            frequency_penalty: 0.0,
-            presence_penalty: 0.0,
-            stop: vec!["***".to_string(), "\n".to_string()],
+        let (system_message, user_message) = Self::create_prompt(current_date, text);
+
+        let request = OpenAIChatRequest {
+            model: "gpt-3.5-turbo".to_owned(),
+            messages: vec![
+                Message {
+                    role: "system".to_owned(),
+                    content: system_message,
+                },
+                Message {
+                    role: "user".to_owned(),
+                    content: user_message,
+                },
+            ],
         };
 
         // like curl above
-        let model = self.client.post("https://api.openai.com/v1/completions")
+        let model = self.client.post("https://api.openai.com/v1/chat/completions")
             .header("Content-Type", "application/json")
             .header("Authorization", format!("Bearer {}", self.api_key))
             .json(&request)
@@ -94,11 +130,10 @@ const answer = {{\"kind\": \"")
     
     fn parse_response(model_response: ModelResponse) -> Result<Notification, BotError> {
         let choice = model_response.choices.first().ok_or(BotError::NoCompletionGiven)?;
-        let json_string = format!("{{\"kind\": \"{}", choice.text.trim_end_matches(";"));
 
-        info!("\"{}\"", json_string);
+        info!("\"{}\"", choice.text);
 
-        let notification: Notification = serde_json::from_str(&json_string)?;
+        let notification: Notification = serde_json::from_str(&choice.text)?;
 
         Ok(notification)
     }
@@ -118,12 +153,14 @@ mod tests {
         let current_date = DateTime::parse_from_rfc3339("2023-01-26T14:40:00+02:00").unwrap();
         let current_date_in_utc = current_date.with_timezone(&Utc);
         let text = "Завтра в 12 и 15 часов напомни проверить почту";
-        let prompt = OpenAIParser::create_prompt(current_date_in_utc, text);
+        let (system_prompt, user_prompt) = OpenAIParser::create_prompt(current_date_in_utc, text);
 
         // read prompt from assets/example_prompt.txt
         let expected_prompt = std::fs::read_to_string("assets/example_prompt.txt").unwrap().replace("\r", "");
 
-        assert_eq!(prompt, expected_prompt);
+        assert_eq!(system_prompt, expected_prompt);
+
+        assert_eq!("Current time is \"26.01.2023 14:40:00, Thursday\"\nЗавтра в 12 и 15 часов напомни проверить почту\n", user_prompt)
     }
 
     #[test]
@@ -131,7 +168,7 @@ mod tests {
         let completion = ModelResponse {
             choices: vec![
                 super::ModelChoice { 
-                    text: "abs\", \"text\": \"проверить почту\", \"times\": [\"27.01.2023 12:00:00\", \"27.01.2023 15:00:00\"]};".to_owned(), 
+                    text: "{\"kind\": \"absolute\", \"text\": \"проверить почту\", \"times\": [\"27.01.2023 12:00:00\", \"27.01.2023 15:00:00\"]}".to_owned(), 
                     index: 0,
                 }
             ]
@@ -156,7 +193,7 @@ mod tests {
         let completion = ModelResponse {
             choices: vec![
                 super::ModelChoice { 
-                    text: "rel\", \"text\": \"проверить почту\", \"week\": 0, \"days\": [5], \"times\": [\"12:00\", \"15:00\"]};".to_owned(), 
+                    text: "{\"kind\": \"relative\", \"text\": \"проверить почту\", \"week\": 0, \"days\": [5], \"times\": [\"12:00\", \"15:00\"]}".to_owned(), 
                     index: 0,
                 }
             ]

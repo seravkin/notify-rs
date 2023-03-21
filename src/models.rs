@@ -185,19 +185,19 @@ impl <'de> Deserialize<'de> for FormattedTime {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind")]
 pub enum Notification {
-    #[serde(rename = "abs")]
+    #[serde(rename = "absolute")]
     Absolute {
         text: String,
         times: Vec<FormattedTime>
     },
-    #[serde(rename = "rel")]
+    #[serde(rename = "relative")]
     Relative {
         text: String,
         week: u8,
         days: ArrayVec<u8, 7>,
         times: Vec<Time>
     },
-    #[serde(rename = "rec")]
+    #[serde(rename = "reccurrent")]
     Recurrent {
         text: String,
         days: Option<ArrayVec<u8, 7>>,
@@ -274,7 +274,7 @@ mod tests {
     #[test]
     fn should_parse_notification_from_json() {
         let json = r#"
-{"kind": "abs", "text": "testing the bot", "times": ["24.07.2022 16:33:39"]}
+{"kind": "absolute", "text": "testing the bot", "times": ["24.07.2022 16:33:39"]}
         "#;
         let notification: super::Notification = serde_json::from_str(json).unwrap();
         assert_eq!(notification.get_text(), "testing the bot");
