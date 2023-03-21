@@ -11,29 +11,6 @@ pub struct OpenAIParser {
 }
 
 #[derive(Debug, Serialize)]
-struct OpenAIRequest {
-    model: String,
-    prompt: String,
-    temperature: f64,
-    max_tokens: u16,
-    top_p: f64,
-    frequency_penalty: f64,
-    presence_penalty: f64,
-    stop: Vec<String>,
-}
-
-#[derive(Debug, Deserialize)]
-struct ModelChoice {
-    text: String,
-    index: u16,
-}
-
-#[derive(Debug, Deserialize)]
-struct ModelResponse {
-    choices: Vec<ModelChoice>,
-}
-
-#[derive(Debug, Serialize)]
 struct OpenAIChatRequest {
     model: String,
     messages: Vec<Message>,
@@ -52,9 +29,7 @@ struct OpenAIChatResponse {
 
 #[derive(Debug, Deserialize)]
 struct Choice {
-    message: Message,
-    finish_reason: String,
-    index: u16,
+    message: Message
 }
 
 impl OpenAIParser {
@@ -123,17 +98,17 @@ Answer: {\"kind\": \"absolute\", \"text\": \"проверить плиту\", \"
             .header("Authorization", format!("Bearer {}", self.api_key))
             .json(&request)
             .send().await?
-            .json::<ModelResponse>().await?;
+            .json::<OpenAIChatResponse>().await?;
 
         Self::parse_response(model)
     }
     
-    fn parse_response(model_response: ModelResponse) -> Result<Notification, BotError> {
+    fn parse_response(model_response: OpenAIChatResponse) -> Result<Notification, BotError> {
         let choice = model_response.choices.first().ok_or(BotError::NoCompletionGiven)?;
 
-        info!("\"{}\"", choice.text);
+        info!("\"{}\"", choice.message.content);
 
-        let notification: Notification = serde_json::from_str(&choice.text)?;
+        let notification: Notification = serde_json::from_str(&choice.message.content)?;
 
         Ok(notification)
     }
@@ -146,7 +121,7 @@ mod tests {
 
     use crate::models::{Notification, FormattedTime};
 
-    use super::{OpenAIParser, ModelResponse};
+    use super::{OpenAIParser, OpenAIChatResponse};
 
     #[test]
     fn should_create_prompt_as_expected() {
@@ -165,11 +140,13 @@ mod tests {
 
     #[test]
     fn should_parse_absolute_completion_as_expected() {
-        let completion = ModelResponse {
+        let completion = OpenAIChatResponse {
             choices: vec![
-                super::ModelChoice { 
-                    text: "{\"kind\": \"absolute\", \"text\": \"проверить почту\", \"times\": [\"27.01.2023 12:00:00\", \"27.01.2023 15:00:00\"]}".to_owned(), 
-                    index: 0,
+                super::Choice { 
+                    message: super::Message { 
+                        content: "{\"kind\": \"absolute\", \"text\": \"проверить почту\", \"times\": [\"27.01.2023 12:00:00\", \"27.01.2023 15:00:00\"]}".to_owned(), 
+                        role: "assistant".to_owned(), 
+                    },
                 }
             ]
         };
@@ -190,11 +167,13 @@ mod tests {
 
     #[test]
     fn should_parse_relative_completion_as_expected() {
-        let completion = ModelResponse {
+        let completion = OpenAIChatResponse {
             choices: vec![
-                super::ModelChoice { 
-                    text: "{\"kind\": \"relative\", \"text\": \"проверить почту\", \"week\": 0, \"days\": [5], \"times\": [\"12:00\", \"15:00\"]}".to_owned(), 
-                    index: 0,
+                super::Choice { 
+                    message: super::Message { 
+                        role: "assistant".to_owned(), 
+                        content: "{\"kind\": \"relative\", \"text\": \"проверить почту\", \"week\": 0, \"days\": [5], \"times\": [\"12:00\", \"15:00\"]}".to_owned(), 
+                    },
                 }
             ]
         };
